@@ -1,8 +1,6 @@
 #include <errno.h>
 #include <malloc.h>
-#include <pthread.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include <sys/ioctl.h>
@@ -19,35 +17,29 @@
 #include <linux/if_packet.h>
 
 #include <arpa/inet.h>
-#include <unistd.h>
 struct ifreq ifreq_c, ifreq_i,
     ifreq_ip; /// for each ioctl keep diffrent ifreq structure otherwise error
               /// may come in sending(sendto )
 int sock_raw;
 unsigned char *sendbuff;
 
-// 00 : 0c : 29 : 31 : b3 : 49
-// d0 : 67 : e5 : 12 : 6f : 8f
-#define DESTMAC0 0x00
-#define DESTMAC1 0x0c
-#define DESTMAC2 0x29
-#define DESTMAC3 0x31
-#define DESTMAC4 0xb3
-#define DESTMAC5 0x49
+#define DESTMAC0 0xd0
+#define DESTMAC1 0x67
+#define DESTMAC2 0xe5
+#define DESTMAC3 0x12
+#define DESTMAC4 0x6f
+#define DESTMAC5 0x8f
 
 // #define destination_ip 10.240.253.10
 // #define destination_ip 127.0.0.1
-// #define destination_ip "10.252.152.130"
-#define destination_ip "192.168.0.130"
+// #define destination_ip 10.252.152.164
+#define destination_ip 192.168.0.130
 
-#define REPEAT_TIME 1000
-#define PACKET_SIZE 1024
-#define BUF_SIZE 1024
+#define REPEAT_TIME 100000
 
 int total_len = 0, send_len;
 
 void get_eth_index() {
-  // 1. get the index of the interface to send a packet
   memset(&ifreq_i, 0, sizeof(ifreq_i));
   // strncpy(ifreq_i.ifr_name,"wlan0",IFNAMSIZ-1);
   strncpy(ifreq_i.ifr_name, "ens33", IFNAMSIZ - 1);
@@ -59,12 +51,10 @@ void get_eth_index() {
 }
 
 void get_mac() {
-  // 2. get the mac address of the interface
   memset(&ifreq_c, 0, sizeof(ifreq_c));
   // strncpy(ifreq_c.ifr_name,"wlan0",IFNAMSIZ-1);
   strncpy(ifreq_c.ifr_name, "ens33", IFNAMSIZ - 1);
 
-  // getting mac address of the interface
   if ((ioctl(sock_raw, SIOCGIFHWADDR, &ifreq_c)) < 0)
     printf("error in SIOCGIFHWADDR ioctl reading");
 
@@ -86,7 +76,6 @@ void get_mac() {
   eth->h_source[4] = (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[4]);
   eth->h_source[5] = (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[5]);
 
-  // destination mac address
   eth->h_dest[0] = DESTMAC0;
   eth->h_dest[1] = DESTMAC1;
   eth->h_dest[2] = DESTMAC2;
@@ -109,12 +98,11 @@ void get_data() {
   sendbuff[total_len++] = 0xEE;
 }
 
-int initPort = 23453;
-
 void get_udp() {
   struct udphdr *uh = (struct udphdr *)(sendbuff + sizeof(struct iphdr) +
                                         sizeof(struct ethhdr));
-  uh->source = htons(initPort++);
+
+  uh->source = htons(23451);
   uh->dest = htons(23452);
   uh->check = 0;
 
@@ -142,7 +130,7 @@ void get_ip() {
     printf("error in SIOCGIFADDR \n");
   }
 
-  printf("local ip = %s\n",
+  printf("%s\n",
          inet_ntoa((((struct sockaddr_in *)&(ifreq_ip.ifr_addr))->sin_addr)));
 
   /****** OR
@@ -159,7 +147,7 @@ void get_ip() {
   iph->protocol = 17;
   iph->saddr = inet_addr(
       inet_ntoa((((struct sockaddr_in *)&(ifreq_ip.ifr_addr))->sin_addr)));
-  iph->daddr = inet_addr(destination_ip); // put destination IP address
+  iph->daddr = inet_addr("destination_ip"); // put destination IP address
   total_len += sizeof(struct iphdr);
   get_udp();
 
@@ -169,31 +157,27 @@ void get_ip() {
                      (sizeof(struct iphdr) / 2)));
 }
 
-struct ThreadData {
-  int id;
-  FILE *log;
-  int repeatTime;
-};
-
-void *sendData(void *arg) {
-  struct ThreadData *t = (struct ThreadData *)arg;
-  time_t start, end;
-  double durationSec, totalDurationSec = 0;
-  double avgDurationSec = 0;
-  long dataSize, totalDataSize = 0L;
+int main() {
+  clock_t start, end;
   sock_raw = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW);
-  if (sock_raw < 0) {
-    printf("error in socket\n");
-  }
+  if (sock_raw == -1)
+    printf("error in socket");
+
   int v = TPACKET_V3;
   int opt = setsockopt(sock_raw, SOL_PACKET, PACKET_VERSION, &v, sizeof(v));
   if (opt < 0) {
     printf("setsockopt() failed\n");
     exit(1);
   }
+  sendbuff = (unsigned char *)malloc(
+      64); // increase in case of large data.Here data is --> AA  BB  CC  DD  EE
+  memset(sendbuff, 0, 64);
+
+  get_eth_index(); // interface number
+  get_mac();
+  get_ip();
+
   struct sockaddr_ll sadr_ll;
-  // sadr_ll.sll_family = AF_PACKET;
-  // destination mac address
   sadr_ll.sll_ifindex = ifreq_i.ifr_ifindex;
   sadr_ll.sll_halen = ETH_ALEN;
   sadr_ll.sll_addr[0] = DESTMAC0;
@@ -202,62 +186,25 @@ void *sendData(void *arg) {
   sadr_ll.sll_addr[3] = DESTMAC3;
   sadr_ll.sll_addr[4] = DESTMAC4;
   sadr_ll.sll_addr[5] = DESTMAC5;
-  sendbuff = (unsigned char *)malloc(BUF_SIZE);
-  memset(sendbuff, 0, BUF_SIZE);
-  get_eth_index();
-  get_mac();
-  get_ip();
+
   printf("sending...\n");
+  double duration = 0, totalDuration = 0;
   for (int j = 0; j < 50; j++) {
-    start = time(NULL);
-    dataSize = total_len;
-    for (int i = 0; i < t->repeatTime; i++) {
-      send_len = sendto(sock_raw, sendbuff, BUF_SIZE, 0,
-                        (const struct sockaddr *)&sadr_ll, sizeof(sadr_ll));
+    start = clock();
+    for (int i = 0; i < REPEAT_TIME; i++) {
+      send_len =
+          sendto(sock_raw, sendbuff, 64, 0, (const struct sockaddr *)&sadr_ll,
+                 sizeof(struct sockaddr_ll));
       if (send_len < 0) {
-        printf("error in sending...sendlen=%d...errno=%d\n", send_len, errno);
-        exit(1);
-      } else if (send_len != BUF_SIZE) {
-        printf("send_len != BUF_SIZE\n");
+        printf("error in sending....sendlen=%d....errno=%d\n", send_len, errno);
+        return -1;
       }
     }
-    dataSize += PACKET_SIZE;
-    end = time(NULL);
-    totalDataSize += dataSize;
-    durationSec = end - start;
-    // fpritnf(log, "duration: %f sec, ", durationSec);
-    // fprintf(log, "bitrate: %f mbps\n", dataSize / durationSec / 1000000);
-    totalDurationSec += durationSec;
+    end = clock();
+    duration = end - start;
+    printf("duration: %f\n", duration);
+    totalDuration += duration;
   }
-  avgDurationSec = totalDurationSec / 50.0;
-  printf("thread %d avg duration = %f sec, ", t->id, avgDurationSec);
-  printf(", bitrate = %f mbps\n", totalDataSize / totalDurationSec / 1000000);
-  // close(sock_raw);
-}
-
-int main(int argc, char const *argv[]) {
-  int repeatTime, threadCount;
-  if (argc < 3) {
-    repeatTime = 1000;
-    threadCount = 100;
-  } else {
-    repeatTime = atoi(argv[1]);
-    threadCount = atoi(argv[2]);
-  }
-  pthread_t threads[threadCount];
-  struct ThreadData td[threadCount];
-  FILE *log = fopen("log.txt", "w");
-  printf("repeat count = %d, thread count = %d\n", repeatTime, threadCount);
-  for (int i = 0; i < threadCount; i++) {
-    td[i].id = i;
-    td[i].log = log;
-    td[i].repeatTime = repeatTime;
-    printf("create thread %d\n", i);
-    int rc = pthread_create(&threads[i], NULL, sendData, (void *)&td[i]);
-    if (rc < 0) {
-      printf("pthread %d create failed.\n");
-      exit(1);
-    }
-  }
-  pthread_exit(NULL);
+  // printf("end = %ld, start = %ld\n", end, start);
+  printf("total duration: %f\n", totalDuration / 50.0);
 }
