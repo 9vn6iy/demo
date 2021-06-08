@@ -13,43 +13,45 @@
 
 #define REPEAT_TIME 100000
 #define BUF_SIZE 64
-#define PACKET_SIZE 64
-#define FAC_SEC 10
+// 548 * 8
+#define PACKET_SIZE 1024
+#define UDP_HEADER_SIZE 64
+#define SERVER_PORT "6201"
+#define SERVER_IP "10.252.152.130"
+#define SERVER_58_IP "10.178.21.11"
 
-double startTimes[REPEAT_TIME];
-double finishTimes[REPEAT_TIME];
-double durationSecTimes[REPEAT_TIME];
-// double bitratespersec[fac_sec];
-// double jitterpersec[fac_sec];
+long getDataSizeBits(repeat) {
+  return (PACKET_SIZE + UDP_HEADER_SIZE) * repeat;
+}
+
+void fill(char a[], int n) {
+  for (int i = 0; i < n; i++) {
+    a[i] = '1';
+  }
+}
 
 int main(int argc, char const *argv[]) {
-  clock_t start, finish;
-  int totalDataSize = 0;
-  double totalTimeSec = 0;
-  double duration = 0;
-  char servIP[] = "10.252.152.130";
-  char servPort[] = "6201";
+  clock_t start, end;
+  double durationSec = 0.0, totalDurationSec = 0.0;
+  double avgDurationSec = 0.0;
   char data[PACKET_SIZE];
-
-  size_t dataLen = strlen(data);
+  long dataSize, totalDataSize = 0L;
+  // size_t dataLen = strlen(data);
+  size_t dataLen = sizeof(data);
+  fill(data, PACKET_SIZE);
   int clntSock = socket(AF_INET, SOCK_DGRAM, 0);
   if (clntSock < 0) {
     DieWithSystemMessage("socket() failed");
   }
-  // char buffer[BUF_SIZE];
   struct sockaddr_in servAddr;
   socklen_t servAddrLen = sizeof(servAddr);
-  bzero(&servAddr, servAddrLen);
+  memset(&servAddr, 0, servAddrLen);
   servAddr.sin_family = AF_INET;
-  inet_pton(AF_INET, servIP, &servAddr.sin_addr);
-  servAddr.sin_port = htons(atoi(servPort));
-  double outsideStart = clock();
-  double outsideEnd = 0;
-  double totalDuration = 0;
-  for (int j = 0; j < 50; j++) {
+  inet_pton(AF_INET, SERVER_IP, &servAddr.sin_addr);
+  servAddr.sin_port = htons(atoi(SERVER_PORT));
+  for (int i = 0; i < 50; i++) {
     start = clock();
-    for (int i = 0; i < REPEAT_TIME; i++) {
-      startTimes[i] = start;
+    for (int j = 0; j < REPEAT_TIME; j++) {
       ssize_t numBytes = sendto(clntSock, data, dataLen, 0, 
           (struct sockaddr *)&servAddr, servAddrLen);
       if (numBytes < 0) {
@@ -57,39 +59,21 @@ int main(int argc, char const *argv[]) {
       } else if (numBytes != dataLen) {
         DieWithUserMessage("sendto() error", "sent unexpected number of bytes");
       }
-      /*
-      struct sockaddr_storage fromAddr;
-      socklen_t fromAddrLen = sizeof(fromAddr);
-      char buffer[MAX_STRING_LENGTH + 1];
-      numBytes = recvfrom(clntSock, buffer, MAX_STRING_LENGTH, 0,
-          (struct sockaddr *)&fromAddr, &fromAddrLen);
-      if (numBytes < 0) {
-        DieWithUserMessage("recvfrom() error", "received unexpected number of bytes");
-      }
-      totalDataSize += numBytes * 8;
-      finishTimes[i] = finish;
-      double durationTimeMs = duration / CLOCKS_PER_SEC * 1000;
-      double durationTimeSec = durationTimeMs / 1000;
-      totalTimeSec += durationTimeSec;
-      double bps = numBytes / durationTimeSec;
-      double Mbps = bps / 8388608;
-      durationSecTimes[i] = durationTimeSec;
-      printf("spent time: %fms, ", durationTimeSec * 1000);
-      printf("bitrate: %fMbits/sec\n", Mbps);
-      */
     }
-    finish = clock();
-    duration = finish - start;
-    totalDuration += duration;
-    printf("duration = %f\n", duration);
+    dataSize = getDataSizeBits(REPEAT_TIME);
+    end = clock();
+    durationSec = ((end - start) / CLOCKS_PER_SEC);
+    totalDurationSec += durationSec;
+    totalDataSize += dataSize;
+    printf("duration = %f sec, ", durationSec);
+    // printf("throught = %f bit/sec\n", dataSize / durationSec);
+    printf("bitrate = %f mbps\n", (dataSize / durationSec) / 1000000);
   }
-  outsideEnd = clock();
   close(clntSock);
-  // printf("total = %dbit\n", totalDataSize);
-  // printf("totalTime = %lf\n", totalTimeSec);
-  double totalOutsideTime = (outsideEnd - outsideStart) / CLOCKS_PER_SEC * 1000;
-  // printf("outsideTime = %lfms\n", totalOutsideTime);
-  // printf("sp = %lf\n", totalDataSize / totalOutsideTime);
-  // printf("end = %f, start = %f\n", outsideEnd, outsideStart);
-  printf("total duration = %f\n", totalDuration / 50.0);
+  avgDurationSec = totalDurationSec / 50.0;
+  printf("total duration = %f sec\n", avgDurationSec);
+  // printf("total throught = %f bit/sec\n", totalDataSize / totalDurationSec);
+  printf("total throught = %f mbps\n", (totalDataSize / totalDurationSec) / 1000000);
 }
+
+

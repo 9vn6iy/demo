@@ -2,6 +2,7 @@
 #include <malloc.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -32,10 +33,12 @@ unsigned char *sendbuff;
 
 // #define destination_ip 10.240.253.10
 // #define destination_ip 127.0.0.1
-// #define destination_ip 10.252.152.164
-#define destination_ip 192.168.0.130
+#define destination_ip 10.252.152.130
+// #define destination_ip 192.168.0.130
 
 #define REPEAT_TIME 100000
+#define PACKET_SIZE 1024
+#define BUF_SIZE 64
 
 int total_len = 0, send_len;
 
@@ -159,6 +162,9 @@ void get_ip() {
 
 int main() {
   clock_t start, end;
+  double durationSec, totalDurationSec = 0;
+  double avgDurationSec = 0;
+  long dataSize, totalDataSize = 0L;
   sock_raw = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW);
   if (sock_raw == -1)
     printf("error in socket");
@@ -170,8 +176,8 @@ int main() {
     exit(1);
   }
   sendbuff = (unsigned char *)malloc(
-      64); // increase in case of large data.Here data is --> AA  BB  CC  DD  EE
-  memset(sendbuff, 0, 64);
+      PACKET_SIZE); // increase in case of large data.Here data is --> AA  BB  CC  DD  EE
+  memset(sendbuff, 0, PACKET_SIZE);
 
   get_eth_index(); // interface number
   get_mac();
@@ -188,23 +194,29 @@ int main() {
   sadr_ll.sll_addr[5] = DESTMAC5;
 
   printf("sending...\n");
-  double duration = 0, totalDuration = 0;
   for (int j = 0; j < 50; j++) { 
     start = clock();
+    dataSize = total_len;
     for (int i = 0; i < REPEAT_TIME; i++) {
-      send_len =
-          sendto(sock_raw, sendbuff, 64, 0, (const struct sockaddr *)&sadr_ll,
+      send_len = sendto(sock_raw, sendbuff, PACKET_SIZE, 0, (const struct sockaddr *)&sadr_ll,
                  sizeof(struct sockaddr_ll));
       if (send_len < 0) {
         printf("error in sending....sendlen=%d....errno=%d\n", send_len, errno);
-        return -1;
+        exit(1);
+      }  else if (send_len != PACKET_SIZE) {
+        printf("send_len != PACKET_SIZE\n");
+        exit(1);
       }
     }
+    dataSize += PACKET_SIZE;
     end = clock();
-    duration = end - start;
-    printf("duration: %f\n", duration);
-    totalDuration += duration;
+    totalDataSize += dataSize;
+    durationSec = (end - start) / CLOCKS_PER_SEC;
+    printf("duration: %f sec, ", durationSec);
+    printf("bitrate: %f mbps\n", dataSize / durationSec / 1000000);
+    totalDurationSec += durationSec;
   }
-  // printf("end = %ld, start = %ld\n", end, start);
-  printf("total duration: %f\n", totalDuration / 50.0);
+  avgDurationSec = totalDurationSec / 50.0;
+  printf("avg duration: %f sec\n", avgDurationSec);
+  printf("avg bitrate: %f mbps\n", totalDataSize / totalDurationSec / 1000000);
 }
