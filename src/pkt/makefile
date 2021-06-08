@@ -9,9 +9,9 @@ obj2 = $(patsubst %.c, %.o, $(src2))
 all : $(tar1) $(tar2)
 
 $(tar1) : PKTV3Sender.o $(obj2)
-	cc $^ -o $@ -Wall
+	cc -pthread $^ -o $@ -Wall
 $(tar2) : PKTV3Sniffer.o $(obj2)
-	cc $^ -o $@ -Wall
+	cc -pthread $^ -o $@ -Wall
 
 %.o:$(src1)%.c
 	cc -c $< -o $@
@@ -21,7 +21,7 @@ $(tar2) : PKTV3Sniffer.o $(obj2)
 	cc -c $< -o $@ -Wall
 
 .PHONY : clean
-clean : 
+clean :
 	rm -rf $(tar1) $(tar2) $(obj1) $(obj2)
 
 

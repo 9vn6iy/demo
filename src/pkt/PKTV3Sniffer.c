@@ -1,7 +1,7 @@
-#include <malloc.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -20,6 +20,8 @@ int total, tcp, udp, icmp, igmp, other, iphdrlen;
 
 struct sockaddr saddr;
 struct sockaddr_in source, dest;
+
+#define BUF_SIZE 1024
 
 void ethernet_header(unsigned char *buffer, int buflen) {
   struct ethhdr *eth = (struct ethhdr *)(buffer);
@@ -158,8 +160,8 @@ int main() {
 
   int sock_r, saddr_len, buflen;
 
-  unsigned char *buffer = (unsigned char *)malloc(65536);
-  memset(buffer, 0, 65536);
+  unsigned char *buffer = (unsigned char *)malloc(BUF_SIZE);
+  memset(buffer, 0, BUF_SIZE);
 
   log_txt = fopen("log.txt", "w");
   if (!log_txt) {
@@ -184,7 +186,7 @@ int main() {
   while (1) {
     saddr_len = sizeof saddr;
     buflen =
-        recvfrom(sock_r, buffer, 65536, 0, &saddr, (socklen_t *)&saddr_len);
+        recvfrom(sock_r, buffer, BUF_SIZE, 0, &saddr, (socklen_t *)&saddr_len);
 
     if (buflen < 0) {
       printf("error in reading recvfrom function\n");
@@ -199,4 +201,3 @@ int main() {
   close(sock_r); // use signals to close socket
   printf("DONE!!!!\n");
 }
-
