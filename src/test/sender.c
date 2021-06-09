@@ -23,19 +23,19 @@ struct ifreq ifreq_c, ifreq_i,
 int sock_raw;
 unsigned char *sendbuff;
 
-#define DESTMAC0 0xd0
-#define DESTMAC1 0x67
-#define DESTMAC2 0xe5
-#define DESTMAC3 0x12
-#define DESTMAC4 0x6f
-#define DESTMAC5 0x8f
+#define DESTMAC0 0x00
+#define DESTMAC1 0x0c
+#define DESTMAC2 0x29
+#define DESTMAC3 0x31
+#define DESTMAC4 0xb3
+#define DESTMAC5 0x49
 
 // #define destination_ip 10.240.253.10
 // #define destination_ip 127.0.0.1
-// #define destination_ip 10.252.152.164
-#define destination_ip 192.168.0.130
+#define destination_ip "10.252.152.130"
+//#define destination_ip "192.168.0.130"
 
-#define REPEAT_TIME 100000
+#define REPEAT_TIME 100
 
 int total_len = 0, send_len;
 

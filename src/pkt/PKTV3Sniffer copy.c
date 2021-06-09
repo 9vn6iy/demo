@@ -1,4 +1,3 @@
-#include <pthread.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -16,9 +15,15 @@
 #include <netinet/tcp.h>
 #include <netinet/udp.h> // for udp header
 
+FILE *log_txt;
+int total, tcp, udp, icmp, igmp, other, iphdrlen;
+
+struct sockaddr saddr;
+struct sockaddr_in source, dest;
+
 #define BUF_SIZE 1024
 
-void ethernet_header(unsigned char *buffer, int buflen, FILE *log_txt) {
+void ethernet_header(unsigned char *buffer, int buflen) {
   struct ethhdr *eth = (struct ethhdr *)(buffer);
   fprintf(log_txt, "\nEthernet Header\n");
   fprintf(log_txt, "\t|-Source Address	: %.2X-%.2X-%.2X-%.2X-%.2X-%.2X\n",
@@ -31,17 +36,15 @@ void ethernet_header(unsigned char *buffer, int buflen, FILE *log_txt) {
   fprintf(log_txt, "\t|-Protocol		: %d\n", eth->h_proto);
 }
 
-void ip_header(unsigned char *buffer, int buflen, int *iphdrlen,
-               struct sockaddr_in *source, struct sockaddr_in *dest,
-               FILE *log_txt) {
+void ip_header(unsigned char *buffer, int buflen) {
   struct iphdr *ip = (struct iphdr *)(buffer + sizeof(struct ethhdr));
 
-  *iphdrlen = ip->ihl * 4;
+  iphdrlen = ip->ihl * 4;
 
-  memset(source, 0, sizeof(*source));
-  source->sin_addr.s_addr = ip->saddr;
-  memset(dest, 0, sizeof(*dest));
-  dest->sin_addr.s_addr = ip->daddr;
+  memset(&source, 0, sizeof(source));
+  source.sin_addr.s_addr = ip->saddr;
+  memset(&dest, 0, sizeof(dest));
+  dest.sin_addr.s_addr = ip->daddr;
 
   fprintf(log_txt, "\nIP Header\n");
 
@@ -56,35 +59,35 @@ void ip_header(unsigned char *buffer, int buflen, int *iphdrlen,
   fprintf(log_txt, "\t|-Protocol 	    : %d\n",
           (unsigned int)ip->protocol);
   fprintf(log_txt, "\t|-Header Checksum   : %d\n", ntohs(ip->check));
-  fprintf(log_txt, "\t|-Source IP         : %s\n", inet_ntoa(source->sin_addr));
-  fprintf(log_txt, "\t|-Destination IP    : %s\n", inet_ntoa(dest->sin_addr));
+  fprintf(log_txt, "\t|-Source IP         : %s\n", inet_ntoa(source.sin_addr));
+  fprintf(log_txt, "\t|-Destination IP    : %s\n", inet_ntoa(dest.sin_addr));
 }
 
-void payload(unsigned char *buffer, int buflen, int *iphdrlen, FILE *log_txt) {
+void payload(unsigned char *buffer, int buflen) {
   int i = 0;
   unsigned char *data =
-      (buffer + *iphdrlen + sizeof(struct ethhdr) + sizeof(struct udphdr));
+      (buffer + iphdrlen + sizeof(struct ethhdr) + sizeof(struct udphdr));
   fprintf(log_txt, "\nData\n");
   int remaining_data =
-      buflen - (*iphdrlen + sizeof(struct ethhdr) + sizeof(struct udphdr));
+      buflen - (iphdrlen + sizeof(struct ethhdr) + sizeof(struct udphdr));
   for (i = 0; i < remaining_data; i++) {
     if (i != 0 && i % 16 == 0)
       fprintf(log_txt, "\n");
     fprintf(log_txt, " %.2X ", data[i]);
   }
+
   fprintf(log_txt, "\n");
 }
 
-void tcp_header(unsigned char *buffer, int buflen, FILE *log_txt, int *iphdrlen,
-                struct sockaddr_in *source, struct sockaddr_in *dest) {
+void tcp_header(unsigned char *buffer, int buflen) {
   fprintf(
       log_txt,
       "\n*************************TCP Packet******************************");
-  ethernet_header(buffer, buflen, log_txt);
-  ip_header(buffer, buflen, iphdrlen, source, dest, log_txt);
+  ethernet_header(buffer, buflen);
+  ip_header(buffer, buflen);
 
   struct tcphdr *tcp =
-      (struct tcphdr *)(buffer + *iphdrlen + sizeof(struct ethhdr));
+      (struct tcphdr *)(buffer + iphdrlen + sizeof(struct ethhdr));
   fprintf(log_txt, "\nTCP Header\n");
   fprintf(log_txt, "\t|-Source Port          : %u\n", ntohs(tcp->source));
   fprintf(log_txt, "\t|-Destination Port     : %u\n", ntohs(tcp->dest));
@@ -103,90 +106,58 @@ void tcp_header(unsigned char *buffer, int buflen, FILE *log_txt, int *iphdrlen,
   fprintf(log_txt, "\t|-Checksum             : %d\n", ntohs(tcp->check));
   fprintf(log_txt, "\t|-Urgent Pointer       : %d\n", tcp->urg_ptr);
 
-  payload(buffer, buflen, iphdrlen, log_txt);
+  payload(buffer, buflen);
 
   fprintf(log_txt, "***********************************************************"
                    "******\n\n\n");
 }
 
-void udp_header(unsigned char *buffer, int buflen, FILE *log_txt, int *iphdrlen,
-                struct sockaddr_in *source, struct sockaddr_in *dest) {
+void udp_header(unsigned char *buffer, int buflen) {
   fprintf(
       log_txt,
       "\n*************************UDP Packet******************************");
-  ethernet_header(buffer, buflen, log_txt);
-  ip_header(buffer, buflen, iphdrlen, source, dest, log_txt);
+  ethernet_header(buffer, buflen);
+  ip_header(buffer, buflen);
   fprintf(log_txt, "\nUDP Header\n");
 
   struct udphdr *udp =
-      (struct udphdr *)(buffer + *iphdrlen + sizeof(struct ethhdr));
+      (struct udphdr *)(buffer + iphdrlen + sizeof(struct ethhdr));
   fprintf(log_txt, "\t|-Source Port    	: %d\n", ntohs(udp->source));
   fprintf(log_txt, "\t|-Destination Port	: %d\n", ntohs(udp->dest));
   fprintf(log_txt, "\t|-UDP Length      	: %d\n", ntohs(udp->len));
   fprintf(log_txt, "\t|-UDP Checksum   	: %d\n", ntohs(udp->check));
 
-  payload(buffer, buflen, iphdrlen, log_txt);
+  payload(buffer, buflen);
 
   fprintf(log_txt, "***********************************************************"
                    "******\n\n\n");
 }
 
-void data_process(unsigned char *buffer, int buflen, FILE *log_txt, int *total,
-                  int *tcp, int *udp, int *other, int *iphdrlen,
-                  struct sockaddr_in *source, struct sockaddr_in *dest) {
+void data_process(unsigned char *buffer, int buflen) {
   struct iphdr *ip = (struct iphdr *)(buffer + sizeof(struct ethhdr));
-  ++(*total);
+  ++total;
   /* we will se UDP Protocol only*/
-  switch (ip->protocol) {
+  switch (ip->protocol) // see /etc/protocols file
+  {
+
   case 6:
-    ++(*tcp);
-    tcp_header(buffer, buflen, log_txt, iphdrlen, source, dest);
+    ++tcp;
+    tcp_header(buffer, buflen);
     break;
+
   case 17:
-    ++(*udp);
-    udp_header(buffer, buflen, log_txt, iphdrlen, source, dest);
+    ++udp;
+    udp_header(buffer, buflen);
     break;
 
   default:
-    ++(*other);
+    ++other;
   }
-  printf("TCP: %d  UDP: %d  Other: %d  Toatl: %d  \r", *tcp, *udp, *other,
-         *total);
-}
-
-struct ThreadData {
-  int sock;
-  unsigned char *buffer;
-  struct sockaddr *saddr;
-  FILE *log_txt;
-  int *tcp;
-  int *udp;
-  int *other;
-  int *total;
-  int buflen;
-  int *iphdrlen;
-  struct sockaddr_in *source;
-  struct sockaddr_in *dest;
-};
-
-void *handleRequest(void *arg) {
-  struct ThreadData *t = (struct ThreadData *)arg;
-  fflush(t->log_txt);
-  data_process(t->buffer, t->buflen, t->log_txt, t->total, t->tcp, t->udp,
-               t->other, t->iphdrlen, t->source, t->dest);
-  fflush(t->log_txt);
-  data_process(t->buffer, t->buflen, t->log_txt, t->total, t->tcp, t->udp,
-               t->other, t->iphdrlen, t->source, t->dest);
+  printf("TCP: %d  UDP: %d  Other: %d  Toatl: %d  \r", tcp, udp, other, total);
 }
 
 int main() {
 
-  int total = 0, tcp = 0, udp = 0, icmp = 0, igmp = 0, other = 0, iphdrlen = 0;
-
-  struct sockaddr saddr;
-  struct sockaddr_in source, dest;
-
-  FILE *log_txt;
   int sock_r, saddr_len, buflen;
 
   unsigned char *buffer = (unsigned char *)malloc(BUF_SIZE);
@@ -213,29 +184,20 @@ int main() {
   }
 
   while (1) {
-    int saddr_len = sizeof saddr;
+    saddr_len = sizeof saddr;
     buflen =
         recvfrom(sock_r, buffer, BUF_SIZE, 0, &saddr, (socklen_t *)&saddr_len);
+
     if (buflen < 0) {
       printf("error in reading recvfrom function\n");
       return -1;
     }
-    pthread_t id;
-    struct ThreadData td;
-    td.log_txt = log_txt;
-    td.saddr = &saddr;
-    td.buffer = buffer;
-    td.sock = sock_r;
-    td.total = &total;
-    td.tcp = &tcp;
-    td.udp = &udp;
-    td.other = &other;
-    td.buflen = buflen;
-    td.iphdrlen = &iphdrlen;
-    td.source = &source;
-    td.dest = &dest;
-    pthread_create(&id, NULL, handleRequest, (void *)&td);
+    fflush(log_txt);
+    data_process(buffer, buflen);
+    fflush(log_txt);
+    data_process(buffer, buflen);
   }
-  close(sock_r);
+
+  close(sock_r); // use signals to close socket
   printf("DONE!!!!\n");
 }

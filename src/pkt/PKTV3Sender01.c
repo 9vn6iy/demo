@@ -21,6 +21,11 @@
 
 #include <arpa/inet.h>
 #include <unistd.h>
+struct ifreq ifreq_c, ifreq_i,
+    ifreq_ip; /// for each ioctl keep diffrent ifreq structure otherwise error
+              /// may come in sending(sendto )
+int sock_raw;
+unsigned char *sendbuff;
 
 // 00 : 0c : 29 : 31 : b3 : 49
 // d0 : 67 : e5 : 12 : 6f : 8f
@@ -31,51 +36,61 @@
 #define DESTMAC4 0xb3
 #define DESTMAC5 0x49
 
-#define destination_ip "10.252.152.130"
-// #define destination_ip 192.168.0.130
+// #define destination_ip 10.240.253.10
+// #define destination_ip 127.0.0.1
+// #define destination_ip "10.252.152.130"
+#define destination_ip "192.168.0.130"
 
 #define REPEAT_TIME 1000
 #define PACKET_SIZE 1024
 #define BUF_SIZE 1024
 
-void get_eth_index(int sock_raw, struct ifreq *ifreq_i,
-                   unsigned char *sendbuff) {
-  memset(ifreq_i, 0, sizeof(*ifreq_i));
-  strncpy(ifreq_i->ifr_name, "ens33", IFNAMSIZ - 1);
+int total_len = 0, send_len;
 
-  if ((ioctl(sock_raw, SIOCGIFINDEX, ifreq_i)) < 0)
+int MutexLock();
+int MutexUnLock();
+pthread_mutex_t g_Mutex;
+#define LOCKTIMEOUT 5000
+
+void get_eth_index() {
+  // 1. get the index of the interface to send a packet
+  memset(&ifreq_i, 0, sizeof(ifreq_i));
+  // strncpy(ifreq_i.ifr_name,"wlan0",IFNAMSIZ-1);
+  strncpy(ifreq_i.ifr_name, "ens33", IFNAMSIZ - 1);
+
+  // ifreq_ip.ifr_ifindex = if_nametoindex("ens33");
+  if ((ioctl(sock_raw, SIOCGIFINDEX, &ifreq_i)) < 0)
     printf("error in index ioctl reading");
-  printf("index=%d\n", ifreq_i->ifr_ifindex);
+  printf("index=%d\n", ifreq_i.ifr_ifindex);
 }
 
-void get_mac(int sock_raw, struct ifreq *ifreq_c, int *total_len,
-             unsigned char *sendbuff) {
+void get_mac() {
   // 2. get the mac address of the interface
-  memset(ifreq_c, 0, sizeof(*ifreq_c));
+  memset(&ifreq_c, 0, sizeof(ifreq_c));
   // strncpy(ifreq_c.ifr_name,"wlan0",IFNAMSIZ-1);
-  strncpy(ifreq_c->ifr_name, "ens33", IFNAMSIZ - 1);
+  strncpy(ifreq_c.ifr_name, "ens33", IFNAMSIZ - 1);
 
   // getting mac address of the interface
-  if ((ioctl(sock_raw, SIOCGIFHWADDR, ifreq_c)) < 0)
+  if ((ioctl(sock_raw, SIOCGIFHWADDR, &ifreq_c)) < 0)
     printf("error in SIOCGIFHWADDR ioctl reading");
 
   printf("Mac= %.2X-%.2X-%.2X-%.2X-%.2X-%.2X\n",
-         (unsigned char)(ifreq_c->ifr_hwaddr.sa_data[0]),
-         (unsigned char)(ifreq_c->ifr_hwaddr.sa_data[1]),
-         (unsigned char)(ifreq_c->ifr_hwaddr.sa_data[2]),
-         (unsigned char)(ifreq_c->ifr_hwaddr.sa_data[3]),
-         (unsigned char)(ifreq_c->ifr_hwaddr.sa_data[4]),
-         (unsigned char)(ifreq_c->ifr_hwaddr.sa_data[5]));
+         (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[0]),
+         (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[1]),
+         (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[2]),
+         (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[3]),
+         (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[4]),
+         (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[5]));
 
   printf("ethernet packaging start ... \n");
 
   struct ethhdr *eth = (struct ethhdr *)(sendbuff);
-  eth->h_source[0] = (unsigned char)(ifreq_c->ifr_hwaddr.sa_data[0]);
-  eth->h_source[1] = (unsigned char)(ifreq_c->ifr_hwaddr.sa_data[1]);
-  eth->h_source[2] = (unsigned char)(ifreq_c->ifr_hwaddr.sa_data[2]);
-  eth->h_source[3] = (unsigned char)(ifreq_c->ifr_hwaddr.sa_data[3]);
-  eth->h_source[4] = (unsigned char)(ifreq_c->ifr_hwaddr.sa_data[4]);
-  eth->h_source[5] = (unsigned char)(ifreq_c->ifr_hwaddr.sa_data[5]);
+  eth->h_source[0] = (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[0]);
+  eth->h_source[1] = (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[1]);
+  eth->h_source[2] = (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[2]);
+  eth->h_source[3] = (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[3]);
+  eth->h_source[4] = (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[4]);
+  eth->h_source[5] = (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[5]);
 
   // destination mac address
   eth->h_dest[0] = DESTMAC0;
@@ -89,28 +104,46 @@ void get_mac(int sock_raw, struct ifreq *ifreq_c, int *total_len,
 
   printf("ethernet packaging done.\n");
 
-  *total_len += sizeof(struct ethhdr);
+  total_len += sizeof(struct ethhdr);
 }
 
-void get_data(unsigned char *sendbuff, int *total_len) {
-  sendbuff[(*total_len)++] = 0xAA;
-  sendbuff[(*total_len)++] = 0xBB;
-  sendbuff[(*total_len)++] = 0xCC;
-  sendbuff[(*total_len)++] = 0xDD;
-  sendbuff[(*total_len)++] = 0xEE;
+void get_data() {
+  sendbuff[total_len++] = 0xAA;
+  sendbuff[total_len++] = 0xBB;
+  sendbuff[total_len++] = 0xCC;
+  sendbuff[total_len++] = 0xDD;
+  sendbuff[total_len++] = 0xEE;
 }
 
 int initPort = 23453;
 
-void get_udp(unsigned char *sendbuff, int *total_len) {
+void get_udp() {
   struct udphdr *uh = (struct udphdr *)(sendbuff + sizeof(struct iphdr) +
                                         sizeof(struct ethhdr));
+
+  int iRetCode = 0;
+
+  /*
+  iRetCode = MutexLock();
+  if (iRetCode < 0) {
+    printf("exec MutexLock failed!\n");
+    return -1;
+  }
+  */
   uh->source = htons(initPort++);
   uh->dest = htons(23452);
   uh->check = 0;
-  *total_len += sizeof(struct udphdr);
-  get_data(sendbuff, total_len);
-  uh->len = htons((*total_len - sizeof(struct iphdr) - sizeof(struct ethhdr)));
+  /*
+  iRetCode = MutexUnLock();
+  if (iRetCode < 0) {
+    printf("exec MutexUnLock failed!\n");
+    return -1;
+  }
+  */
+
+  total_len += sizeof(struct udphdr);
+  get_data();
+  uh->len = htons((total_len - sizeof(struct iphdr) - sizeof(struct ethhdr)));
 }
 
 unsigned short checksum(unsigned short *buff, int _16bitword) {
@@ -124,17 +157,16 @@ unsigned short checksum(unsigned short *buff, int _16bitword) {
   return (~sum);
 }
 
-void get_ip(int sock_raw, struct ifreq *ifreq_ip, unsigned char *sendbuff,
-            int *total_len) {
-  memset(ifreq_ip, 0, sizeof(*ifreq_ip));
+void get_ip() {
+  memset(&ifreq_ip, 0, sizeof(ifreq_ip));
   // strncpy(ifreq_ip.ifr_name,"wlan0",IFNAMSIZ-1);
-  strncpy(ifreq_ip->ifr_name, "ens33", IFNAMSIZ - 1);
-  if (ioctl(sock_raw, SIOCGIFADDR, ifreq_ip) < 0) {
+  strncpy(ifreq_ip.ifr_name, "ens33", IFNAMSIZ - 1);
+  if (ioctl(sock_raw, SIOCGIFADDR, &ifreq_ip) < 0) {
     printf("error in SIOCGIFADDR \n");
   }
 
   printf("local ip = %s\n",
-         inet_ntoa((((struct sockaddr_in *)&(ifreq_ip->ifr_addr))->sin_addr)));
+         inet_ntoa((((struct sockaddr_in *)&(ifreq_ip.ifr_addr))->sin_addr)));
 
   /****** OR
           int i;
@@ -149,12 +181,12 @@ void get_ip(int sock_raw, struct ifreq *ifreq_ip, unsigned char *sendbuff,
   iph->ttl = 64;
   iph->protocol = 17;
   iph->saddr = inet_addr(
-      inet_ntoa((((struct sockaddr_in *)&(ifreq_ip->ifr_addr))->sin_addr)));
+      inet_ntoa((((struct sockaddr_in *)&(ifreq_ip.ifr_addr))->sin_addr)));
   iph->daddr = inet_addr(destination_ip); // put destination IP address
-  *total_len += sizeof(struct iphdr);
-  get_udp(sendbuff, total_len);
+  total_len += sizeof(struct iphdr);
+  get_udp();
 
-  iph->tot_len = htons(*total_len - sizeof(struct ethhdr));
+  iph->tot_len = htons(total_len - sizeof(struct ethhdr));
   iph->check =
       htons(checksum((unsigned short *)(sendbuff + sizeof(struct ethhdr)),
                      (sizeof(struct iphdr) / 2)));
@@ -167,11 +199,7 @@ struct ThreadData {
 };
 
 void *sendData(void *arg) {
-  int total_len = 0, send_len = 0;
   struct ThreadData *t = (struct ThreadData *)arg;
-  struct ifreq ifreq_c, ifreq_i, ifreq_ip;
-  int sock_raw;
-  unsigned char *sendbuff;
   time_t start, end;
   double durationSec, totalDurationSec = 0;
   double avgDurationSec = 0;
@@ -199,9 +227,9 @@ void *sendData(void *arg) {
   sadr_ll.sll_addr[5] = DESTMAC5;
   sendbuff = (unsigned char *)malloc(BUF_SIZE);
   memset(sendbuff, 0, BUF_SIZE);
-  get_eth_index(sock_raw, &ifreq_i, sendbuff);
-  get_mac(sock_raw, &ifreq_c, &total_len, sendbuff);
-  get_ip(sock_raw, &ifreq_ip, sendbuff, &total_len);
+  get_eth_index();
+  get_mac();
+  get_ip();
   printf("sending...\n");
   for (int j = 0; j < 50; j++) {
     start = time(NULL);
@@ -220,12 +248,14 @@ void *sendData(void *arg) {
     end = time(NULL);
     totalDataSize += dataSize;
     durationSec = end - start;
+    // fpritnf(log, "duration: %f sec, ", durationSec);
+    // fprintf(log, "bitrate: %f mbps\n", dataSize / durationSec / 1000000);
     totalDurationSec += durationSec;
   }
   avgDurationSec = totalDurationSec / 50.0;
   printf("thread %d avg duration = %f sec, ", t->id, avgDurationSec);
   printf(", bitrate = %f mbps\n", totalDataSize / totalDurationSec / 1000000);
-  close(sock_raw);
+  // close(sock_raw);
 }
 
 int main(int argc, char const *argv[]) {
@@ -253,4 +283,37 @@ int main(int argc, char const *argv[]) {
     }
   }
   pthread_exit(NULL);
+}
+
+int MutexLock() {
+  struct timeval tCurrentTime;
+  struct timespec tTimeout;
+
+  int iRetCode = 0;
+
+  gettimeofday(&tCurrentTime, NULL); // 获取当前绝对时间
+  tTimeout.tv_sec = tCurrentTime.tv_sec + LOCKTIMEOUT / 1000; // 指定超时时间
+  tTimeout.tv_nsec = tCurrentTime.tv_usec * 1000;
+
+  iRetCode = pthread_mutex_timedlock(&g_Mutex, &tTimeout);
+  if (iRetCode != 0) {
+    printf("MutexLock: exec pthread_mutex_timedlock failed, RetCode=%d\n",
+           iRetCode);
+    return -1;
+  }
+
+  return 0;
+}
+
+int MutexUnLock() {
+  int iRetCode = 0;
+
+  iRetCode = pthread_mutex_unlock(&g_Mutex);
+  if (iRetCode != 0) {
+    printf("MutexUnLock: exec pthread_mutex_unlock failed, RetCode=%d\n",
+           iRetCode);
+    return -1;
+  }
+
+  return 0;
 }
