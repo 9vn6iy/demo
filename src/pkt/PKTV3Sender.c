@@ -38,10 +38,13 @@
 #define PACKET_SIZE 1024
 #define BUF_SIZE 1024
 
+#define INTERFACE_NAME "bond0"
+// #define INTERFACE_NAME ens33
+
 void get_eth_index(int sock_raw, struct ifreq *ifreq_i,
                    unsigned char *sendbuff) {
   memset(ifreq_i, 0, sizeof(*ifreq_i));
-  strncpy(ifreq_i->ifr_name, "ens33", IFNAMSIZ - 1);
+  strncpy(ifreq_i->ifr_name, INTERFACE_NAME, IFNAMSIZ - 1);
 
   if ((ioctl(sock_raw, SIOCGIFINDEX, ifreq_i)) < 0)
     printf("error in index ioctl reading");
@@ -53,7 +56,7 @@ void get_mac(int sock_raw, struct ifreq *ifreq_c, int *total_len,
   // 2. get the mac address of the interface
   memset(ifreq_c, 0, sizeof(*ifreq_c));
   // strncpy(ifreq_c.ifr_name,"wlan0",IFNAMSIZ-1);
-  strncpy(ifreq_c->ifr_name, "ens33", IFNAMSIZ - 1);
+  strncpy(ifreq_c->ifr_name, INTERFACE_NAME, IFNAMSIZ - 1);
 
   // getting mac address of the interface
   if ((ioctl(sock_raw, SIOCGIFHWADDR, ifreq_c)) < 0)
@@ -128,7 +131,7 @@ void get_ip(int sock_raw, struct ifreq *ifreq_ip, unsigned char *sendbuff,
             int *total_len) {
   memset(ifreq_ip, 0, sizeof(*ifreq_ip));
   // strncpy(ifreq_ip.ifr_name,"wlan0",IFNAMSIZ-1);
-  strncpy(ifreq_ip->ifr_name, "ens33", IFNAMSIZ - 1);
+  strncpy(ifreq_ip->ifr_name, INTERFACE_NAME, IFNAMSIZ - 1);
   if (ioctl(sock_raw, SIOCGIFADDR, ifreq_ip) < 0) {
     printf("error in SIOCGIFADDR \n");
   }
