@@ -24,21 +24,23 @@
 
 // 00 : 0c : 29 : 31 : b3 : 49
 // d0 : 67 : e5 : 12 : 6f : 8f
-#define DESTMAC0 0x00
-#define DESTMAC1 0x0c
-#define DESTMAC2 0x29
-#define DESTMAC3 0x31
-#define DESTMAC4 0xb3
-#define DESTMAC5 0x49
+// e8:b4:70:08:e4:4b
+#define DESTMAC0 0xe8
+#define DESTMAC1 0xb4
+#define DESTMAC2 0x70
+#define DESTMAC3 0x08
+#define DESTMAC4 0xe4
+#define DESTMAC5 0x4b
 
-#define destination_ip "10.252.152.130"
+// #define destination_ip "10.252.152.130"
+#define destination_ip "10.178.21.11"
 // #define destination_ip 192.168.0.130
 
 #define REPEAT_TIME 1000
 #define PACKET_SIZE 1024
 #define BUF_SIZE 1024
 
-#define INTERFACE_NAME "bond0"
+#define INTERFACE_NAME "eth0"
 // #define INTERFACE_NAME ens33
 
 void get_eth_index(int sock_raw, struct ifreq *ifreq_i,
@@ -46,9 +48,17 @@ void get_eth_index(int sock_raw, struct ifreq *ifreq_i,
   memset(ifreq_i, 0, sizeof(*ifreq_i));
   strncpy(ifreq_i->ifr_name, INTERFACE_NAME, IFNAMSIZ - 1);
 
-  if ((ioctl(sock_raw, SIOCGIFINDEX, ifreq_i)) < 0)
-    printf("error in index ioctl reading");
+  ifreq_i->ifr_ifindex = if_nametoindex(INTERFACE_NAME);
+  // if ((ioctl(sock_raw, SIOCGIFINDEX, ifreq_i)) < 0)
+  // printf("error in index ioctl reading\n");
   printf("index=%d\n", ifreq_i->ifr_ifindex);
+  // set interval debug
+  /*
+  if (ioctl(sock_raw, SIOCSIFFLAGS, ifreq_i) < 0) {
+    printf("error in debug ioctl readinn");
+  }
+  printf("flag = %d\n", ifreq_i->ifr_flags);
+  */
 }
 
 void get_mac(int sock_raw, struct ifreq *ifreq_c, int *total_len,
@@ -190,7 +200,7 @@ void *sendData(void *arg) {
     exit(1);
   }
   struct sockaddr_ll sadr_ll;
-  // sadr_ll.sll_family = AF_PACKET;
+  sadr_ll.sll_family = AF_PACKET;
   // destination mac address
   sadr_ll.sll_ifindex = ifreq_i.ifr_ifindex;
   sadr_ll.sll_halen = ETH_ALEN;
