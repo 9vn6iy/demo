@@ -2,8 +2,10 @@
  * Author:Subodh Saxena
  */
 #include <errno.h>
+#include <getopt.h>
 #include <malloc.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <sys/ioctl.h>
@@ -19,28 +21,94 @@
 #include <linux/if_packet.h>
 
 #include <arpa/inet.h>
-struct ifreq ifreq_c, ifreq_i,
-    ifreq_ip; /// for each ioctl keep diffrent ifreq structure otherwise error
-              /// may come in sending(sendto )
+
+#include "../../include/Constant.h"
+#include "../../include/HandleError.h"
+#include "../../include/RandUtility.h"
+
+#define MAX_IP_LENGTH 20
+#define MAX_INTERFACE_LANGTH 50
+#define MAX_MAC_LENGTH 20
+#define FILE_STREAM stderr
+#define ETH_HDR_SIZE sizeof(struct ethhdr)
+#define IP_HDR_SIZE sizeof(struct iphdr)
+#define UDP_HDR_SIZE sizeof(struct udphdr)
+
+#define OPT_STR "r::t::p::i:f:m:"
+
+struct ArgData {
+  int repeatTime;
+  int threadCount;
+  int packetSize;
+  char destIP[MAX_IP_LENGTH];
+  char destMAC[MAX_MAC_LENGTH];
+  char interface[MAX_INTERFACE_LANGTH];
+};
+
+struct option longopts[] = {
+    {"repeatTime", optional_argument, NULL, 'r'},
+    {"threadCount", optional_argument, NULL, 't'},
+    {"packetSize", optional_argument, NULL, 'p'},
+    {"destIP", required_argument, NULL, 'i'},
+    {"interface", required_argument, NULL, 'f'},
+    {"destMAC", required_argument, NULL, 'm'},
+};
+
+void usage(const char *program) {
+  fprintf(stderr,
+          "Usage: %s [OPTIONS]\n"
+          "Options:\n"
+          " -f, --interface\n"
+          " -i, --destIP\n"
+          " -m, --destMAC\n"
+          " -r, --repeatTime\n"
+          " -t, --threadCount\n"
+          " -p, --packetSize\n"
+          "\n",
+          program);
+  exit(EXIT_FAILURE);
+}
+
+void parseArgs(int argc, char const *argv[], struct ArgData *arg) {
+  int opt, optIdx;
+  while ((opt = getopt_long(argc, argv, OPT_STR, longopts, &optIdx)) != -1) {
+    switch (opt) {
+    case 'r':
+      arg->repeatTime = atoi(optarg);
+      break;
+    case 't':
+      arg->threadCount = atoi(optarg);
+      break;
+    case 'p':
+      arg->packetSize = atoi(optarg);
+      break;
+    case 'i':
+      strncpy(arg->destIP, optarg, MAX_IP_LENGTH);
+      break;
+    case 'f':
+      strncpy(arg->interface, optarg, MAX_INTERFACE_LANGTH);
+      break;
+    case 'm':
+      strncpy(arg->destMAC, optarg, MAX_MAC_LENGTH);
+      break;
+    default:
+      usage(argv[0]);
+      printf("parse args failed!\n");
+      exit(1);
+    }
+  }
+}
+
+struct ifreq ifreq_c, ifreq_i, ifreq_ip;
 int sock_raw;
 unsigned char *sendbuff;
-
-// 50:65:f3:65:c5:9e
-#define DESTMAC0 0x50
-#define DESTMAC1 0x65
-#define DESTMAC2 0xf3
-#define DESTMAC3 0x65
-#define DESTMAC4 0xc5
-#define DESTMAC5 0x9e
-
-#define destination_ip "10.126.82.28"
-#define INTERFACE_NAME "eno2"
+struct ArgData arg;
 
 int total_len = 0, send_len;
 
 void get_eth_index() {
   memset(&ifreq_i, 0, sizeof(ifreq_i));
-  strncpy(ifreq_i.ifr_name, INTERFACE_NAME, IFNAMSIZ - 1);
+  strncpy(ifreq_i.ifr_name, arg.interface, IFNAMSIZ - 1);
 
   if ((ioctl(sock_raw, SIOCGIFINDEX, &ifreq_i)) < 0)
     printf("error in index ioctl reading");
@@ -50,7 +118,7 @@ void get_eth_index() {
 
 void get_mac() {
   memset(&ifreq_c, 0, sizeof(ifreq_c));
-  strncpy(ifreq_c.ifr_name, INTERFACE_NAME, IFNAMSIZ - 1);
+  strncpy(ifreq_c.ifr_name, arg.interface, IFNAMSIZ - 1);
 
   if ((ioctl(sock_raw, SIOCGIFHWADDR, &ifreq_c)) < 0)
     printf("error in SIOCGIFHWADDR ioctl reading");
@@ -73,14 +141,18 @@ void get_mac() {
   eth->h_source[4] = (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[4]);
   eth->h_source[5] = (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[5]);
 
-  eth->h_dest[0] = DESTMAC0;
-  eth->h_dest[1] = DESTMAC1;
-  eth->h_dest[2] = DESTMAC2;
-  eth->h_dest[3] = DESTMAC3;
-  eth->h_dest[4] = DESTMAC4;
-  eth->h_dest[5] = DESTMAC5;
-  eth->h_proto = htons(ETH_P_IP); // 0x800
+  printf("dest MAC=%s\n", arg.destMAC);
+  char *tok = strtok(arg.destMAC, ":");
+  int i = 0;
+  while (tok != NULL) {
+    sscanf(tok, "%X", &eth->h_dest[i++]);
+    tok = strtok(NULL, ":");
+  }
+  eth->h_proto = htons(ETH_P_IP);
 
+  printf("dest Mac= %.2X-%.2X-%.2X-%.2X-%.2X-%.2X\n", eth->h_dest[0],
+         eth->h_dest[1], eth->h_dest[2], eth->h_dest[3], eth->h_dest[4],
+         eth->h_dest[5]);
   printf("ethernet packaging done.\n");
 
   total_len += sizeof(struct ethhdr);
@@ -120,7 +192,7 @@ unsigned short checksum(unsigned short *buff, int _16bitword) {
 
 void get_ip() {
   memset(&ifreq_ip, 0, sizeof(ifreq_ip));
-  strncpy(ifreq_ip.ifr_name, INTERFACE_NAME, IFNAMSIZ - 1);
+  strncpy(ifreq_ip.ifr_name, arg.interface, IFNAMSIZ - 1);
   if (ioctl(sock_raw, SIOCGIFADDR, &ifreq_ip) < 0) {
     printf("error in SIOCGIFADDR \n");
   }
@@ -142,7 +214,7 @@ void get_ip() {
   iph->protocol = 17;
   iph->saddr = inet_addr(
       inet_ntoa((((struct sockaddr_in *)&(ifreq_ip.ifr_addr))->sin_addr)));
-  iph->daddr = inet_addr(destination_ip); // put destination IP address
+  iph->daddr = inet_addr(arg.destIP);
   total_len += sizeof(struct iphdr);
   get_udp();
 
@@ -152,7 +224,8 @@ void get_ip() {
                      (sizeof(struct iphdr) / 2)));
 }
 
-int main() {
+int main(int argc, char const *argv[]) {
+  parseArgs(argc, argv, &arg);
   sock_raw = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW);
   if (sock_raw == -1)
     printf("error in socket");
@@ -161,8 +234,7 @@ int main() {
     printf("error in set");
   }
 
-  sendbuff = (unsigned char *)malloc(
-      64); // increase in case of large data.Here data is --> AA  BB  CC  DD  EE
+  sendbuff = (unsigned char *)malloc(arg.packetSize);
   memset(sendbuff, 0, 64);
 
   get_eth_index(); // interface number
@@ -172,15 +244,14 @@ int main() {
   struct sockaddr_ll sadr_ll;
   sadr_ll.sll_ifindex = ifreq_i.ifr_ifindex;
   sadr_ll.sll_halen = ETH_ALEN;
-  sadr_ll.sll_addr[0] = DESTMAC0;
-  sadr_ll.sll_addr[1] = DESTMAC1;
-  sadr_ll.sll_addr[2] = DESTMAC2;
-  sadr_ll.sll_addr[3] = DESTMAC3;
-  sadr_ll.sll_addr[4] = DESTMAC4;
-  sadr_ll.sll_addr[5] = DESTMAC5;
-
+  char *tok = strtok(arg.destMAC, ":");
+  int i = 0;
+  while (tok != NULL) {
+    sscanf(tok, "%X", &sadr_ll.sll_addr[i++]);
+    tok = strtok(NULL, ":");
+  }
   printf("sending...\n");
-  for (int i = 0; i < 10000; i++) {
+  for (int i = 0; i < arg.repeatTime; i++) {
     send_len =
         sendto(sock_raw, sendbuff, 64, 0, (const struct sockaddr *)&sadr_ll,
                sizeof(struct sockaddr_ll));

@@ -9,8 +9,8 @@
 #include <unistd.h>
 
 #include "../../include/AddressUtility.h"
+#include "../../include/Constant.h"
 #include "../../include/HandleError.h"
-#include "../../include/constant.h"
 
 #define BUF_SIZE 1024
 

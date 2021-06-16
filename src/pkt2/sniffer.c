@@ -1,11 +1,13 @@
+/* Note: run this program as root user
+ * Author:Subodh Saxena
+ */
+#include <malloc.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <unistd.h>
 
 #include <arpa/inet.h> // to avoid warning at inet_ntoa
 #include <linux/if_packet.h>
@@ -20,8 +22,6 @@ int total, tcp, udp, icmp, igmp, other, iphdrlen;
 
 struct sockaddr saddr;
 struct sockaddr_in source, dest;
-
-#define BUF_SIZE 1024
 
 void ethernet_header(unsigned char *buffer, int buflen) {
   struct ethhdr *eth = (struct ethhdr *)(buffer);
@@ -137,14 +137,11 @@ void data_process(unsigned char *buffer, int buflen) {
   struct iphdr *ip = (struct iphdr *)(buffer + sizeof(struct ethhdr));
   ++total;
   /* we will se UDP Protocol only*/
-  switch (ip->protocol) // see /etc/protocols file
-  {
-
+  switch (ip->protocol) {
   case 6:
     ++tcp;
     tcp_header(buffer, buflen);
     break;
-
   case 17:
     ++udp;
     udp_header(buffer, buflen);
@@ -152,7 +149,6 @@ void data_process(unsigned char *buffer, int buflen) {
 
   default:
     ++other;
-    fprintf(log_txt, "ip->protocol = %d\n", ip->protocol);
   }
   printf("TCP: %d  UDP: %d  Other: %d  Toatl: %d  \r", tcp, udp, other, total);
 }
@@ -161,8 +157,8 @@ int main() {
 
   int sock_r, saddr_len, buflen;
 
-  unsigned char *buffer = (unsigned char *)malloc(BUF_SIZE);
-  memset(buffer, 0, BUF_SIZE);
+  unsigned char *buffer = (unsigned char *)malloc(65536);
+  memset(buffer, 0, 65536);
 
   log_txt = fopen("log.txt", "w");
   if (!log_txt) {
@@ -177,28 +173,16 @@ int main() {
     printf("error in socket\n");
     return -1;
   }
-  int v = TPACKET_V3;
-  int opt = setsockopt(sock_r, SOL_PACKET, PACKET_VERSION, &v, sizeof(v));
-  if (opt < 0) {
-    printf("setsockopt() failed\n");
-    exit(1);
-  }
 
   while (1) {
     saddr_len = sizeof saddr;
     buflen =
-        recvfrom(sock_r, buffer, BUF_SIZE, 0, &saddr, (socklen_t *)&saddr_len);
+        recvfrom(sock_r, buffer, 65536, 0, &saddr, (socklen_t *)&saddr_len);
 
     if (buflen < 0) {
       printf("error in reading recvfrom function\n");
       return -1;
-    } else {
-      // printf("receiced from %s\n", saddr.sa_data);
-      // printf("recv ip = %s\n", ((struct sockaddr_in *)&saddr)->sin_addr);
     }
-
-    fflush(log_txt);
-    data_process(buffer, buflen);
     fflush(log_txt);
     data_process(buffer, buflen);
   }

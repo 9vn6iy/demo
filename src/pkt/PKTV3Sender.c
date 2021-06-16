@@ -22,24 +22,24 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
-// 00 : 0c : 29 : 31 : b3 : 49
-// d0 : 67 : e5 : 12 : 6f : 8f
-// e8:b4:70:08:e4:4b
-#define DESTMAC0 0xe8
-#define DESTMAC1 0xb4
-#define DESTMAC2 0x70
-#define DESTMAC3 0x08
-#define DESTMAC4 0xe4
-#define DESTMAC5 0x4b
+// 00:0c:29:31:b3:49
+#define DESTMAC0 0x00
+#define DESTMAC1 0x0c
+#define DESTMAC2 0x29
+#define DESTMAC3 0x31
+#define DESTMAC4 0xb3
+#define DESTMAC5 0x49
 
-// #define destination_ip "10.252.152.130"
-#define destination_ip "10.178.21.11"
+#define destination_ip "10.252.152.130"
+// #define destination_ip "10.178.21.11"
+// #define destination_ip "10.262.82.28"
 // #define destination_ip 192.168.0.130
 
 #define REPEAT_TIME 1000
 #define PACKET_SIZE 1024
 #define BUF_SIZE 1024
 
+// #define INTERFACE_NAME "eno2"
 #define INTERFACE_NAME "eth0"
 // #define INTERFACE_NAME ens33
 
@@ -48,17 +48,10 @@ void get_eth_index(int sock_raw, struct ifreq *ifreq_i,
   memset(ifreq_i, 0, sizeof(*ifreq_i));
   strncpy(ifreq_i->ifr_name, INTERFACE_NAME, IFNAMSIZ - 1);
 
-  ifreq_i->ifr_ifindex = if_nametoindex(INTERFACE_NAME);
-  // if ((ioctl(sock_raw, SIOCGIFINDEX, ifreq_i)) < 0)
-  // printf("error in index ioctl reading\n");
+  // ifreq_i->ifr_ifindex = if_nametoindex(INTERFACE_NAME);
+  if ((ioctl(sock_raw, SIOCGIFINDEX, ifreq_i)) < 0)
+    printf("error in index ioctl reading\n");
   printf("index=%d\n", ifreq_i->ifr_ifindex);
-  // set interval debug
-  /*
-  if (ioctl(sock_raw, SIOCSIFFLAGS, ifreq_i) < 0) {
-    printf("error in debug ioctl readinn");
-  }
-  printf("flag = %d\n", ifreq_i->ifr_flags);
-  */
 }
 
 void get_mac(int sock_raw, struct ifreq *ifreq_c, int *total_len,
@@ -199,6 +192,11 @@ void *sendData(void *arg) {
     printf("setsockopt() failed\n");
     exit(1);
   }
+  sendbuff = (unsigned char *)malloc(BUF_SIZE);
+  memset(sendbuff, 0, BUF_SIZE);
+  get_eth_index(sock_raw, &ifreq_i, sendbuff);
+  get_mac(sock_raw, &ifreq_c, &total_len, sendbuff);
+  get_ip(sock_raw, &ifreq_ip, sendbuff, &total_len);
   struct sockaddr_ll sadr_ll;
   sadr_ll.sll_family = AF_PACKET;
   // destination mac address
@@ -210,15 +208,11 @@ void *sendData(void *arg) {
   sadr_ll.sll_addr[3] = DESTMAC3;
   sadr_ll.sll_addr[4] = DESTMAC4;
   sadr_ll.sll_addr[5] = DESTMAC5;
-  sendbuff = (unsigned char *)malloc(BUF_SIZE);
-  memset(sendbuff, 0, BUF_SIZE);
-  get_eth_index(sock_raw, &ifreq_i, sendbuff);
-  get_mac(sock_raw, &ifreq_c, &total_len, sendbuff);
-  get_ip(sock_raw, &ifreq_ip, sendbuff, &total_len);
   printf("sending...\n");
   for (int j = 0; j < 50; j++) {
     start = time(NULL);
-    dataSize = total_len;
+    // dataSize += total_len;
+    dataSize = 0L;
     for (int i = 0; i < t->repeatTime; i++) {
       send_len = sendto(sock_raw, sendbuff, BUF_SIZE, 0,
                         (const struct sockaddr *)&sadr_ll, sizeof(sadr_ll));
@@ -228,8 +222,8 @@ void *sendData(void *arg) {
       } else if (send_len != BUF_SIZE) {
         printf("send_len != BUF_SIZE\n");
       }
+      dataSize += BUF_SIZE;
     }
-    dataSize += PACKET_SIZE;
     end = time(NULL);
     totalDataSize += dataSize;
     durationSec = end - start;
@@ -237,15 +231,15 @@ void *sendData(void *arg) {
   }
   avgDurationSec = totalDurationSec / 50.0;
   printf("thread %d avg duration = %f sec, ", t->id, avgDurationSec);
-  printf(", bitrate = %f mbps\n", totalDataSize / totalDurationSec / 1000000);
+  printf(", bitrate = %f mbps\n", (totalDataSize / totalDurationSec) / 1000000);
   close(sock_raw);
 }
 
 int main(int argc, char const *argv[]) {
   int repeatTime, threadCount;
   if (argc < 3) {
-    repeatTime = 1000;
-    threadCount = 100;
+    repeatTime = 10000;
+    threadCount = 50;
   } else {
     repeatTime = atoi(argv[1]);
     threadCount = atoi(argv[2]);

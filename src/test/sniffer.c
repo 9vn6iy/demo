@@ -1,3 +1,6 @@
+/* Note: run this program as root user
+ * Author:Subodh Saxena
+ */
 #include <malloc.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -5,7 +8,6 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <unistd.h>
 
 #include <arpa/inet.h> // to avoid warning at inet_ntoa
 #include <linux/if_packet.h>
@@ -180,7 +182,6 @@ int main() {
     printf("setsockopt() failed\n");
     exit(1);
   }
-
   while (1) {
     saddr_len = sizeof saddr;
     buflen =
@@ -190,8 +191,6 @@ int main() {
       printf("error in reading recvfrom function\n");
       return -1;
     }
-    fflush(log_txt);
-    data_process(buffer, buflen);
     fflush(log_txt);
     data_process(buffer, buflen);
   }
