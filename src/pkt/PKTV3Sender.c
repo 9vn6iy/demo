@@ -74,8 +74,7 @@ void get_mac(int sock_raw, struct ifreq *ifreq_c, int *total_len,
          (unsigned char)(ifreq_c->ifr_hwaddr.sa_data[5]));
 
   printf("ethernet packaging start ... \n");
-
-  struct ethhdr *eth = (struct ethhdr *)(sendbuff);
+struct ethhdr *eth = (struct ethhdr *)(sendbuff);
   eth->h_source[0] = (unsigned char)(ifreq_c->ifr_hwaddr.sa_data[0]);
   eth->h_source[1] = (unsigned char)(ifreq_c->ifr_hwaddr.sa_data[1]);
   eth->h_source[2] = (unsigned char)(ifreq_c->ifr_hwaddr.sa_data[2]);
@@ -261,3 +260,4 @@ int main(int argc, char const *argv[]) {
   }
   pthread_exit(NULL);
 }
+

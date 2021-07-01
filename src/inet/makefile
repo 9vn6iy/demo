@@ -1,5 +1,5 @@
-tar1 = INETServer
-tar2 = INETClient
+tar1 = server
+tar2 = client
 src1 = $(wildcard ./*.c)
 src2 = $(wildcard ../*.c)
 deps = $(wildcard ../../include/*.h)
@@ -8,9 +8,9 @@ obj2 = $(patsubst %.c, %.o, $(src2))
 
 all : $(tar1) $(tar2)
 
-$(tar1) : INETServer.o $(obj2)
+$(tar1) : server.o $(obj2)
 	cc -pthread $^ -o $@ -Wall
-$(tar2) : INETClient.o $(obj2)
+$(tar2) : client.o $(obj2)
 	cc -pthread $^ -o $@ -Wall
 
 %.o:$(src1)%.c

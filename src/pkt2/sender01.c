@@ -156,14 +156,20 @@ void get_mac() {
   printf("ethernet packaging done.\n");
 
   total_len += sizeof(struct ethhdr);
+  printf("get_mac: total_len = %d\n", total_len);
 }
 
 void get_data() {
-  sendbuff[total_len++] = 0xAA;
-  sendbuff[total_len++] = 0xBB;
-  sendbuff[total_len++] = 0xCC;
-  sendbuff[total_len++] = 0xDD;
-  sendbuff[total_len++] = 0xEE;
+  // total_len = 42
+  printf("packetSize - total_len = %d\n", arg.packetSize - total_len);
+  for (; total_len < arg.packetSize; total_len++) {
+    sendbuff[total_len] = 0xAA;
+  }
+  // for (int i = 0; i < arg.packetSize - total_len; i++) {
+  // printf("%d\n", i);
+  // sendbuff[total_len++] = 0xAA;
+  // }
+  printf("after get data: %d\n", total_len);
 }
 
 void get_udp() {
@@ -175,8 +181,11 @@ void get_udp() {
   uh->check = 0;
 
   total_len += sizeof(struct udphdr);
+  // total_len = 34 + 8 = 42
   get_data();
   uh->len = htons((total_len - sizeof(struct iphdr) - sizeof(struct ethhdr)));
+  printf("udp total len = %d\n",
+         total_len - sizeof(struct iphdr) - sizeof(struct ethhdr));
 }
 
 unsigned short checksum(unsigned short *buff, int _16bitword) {
@@ -216,9 +225,13 @@ void get_ip() {
       inet_ntoa((((struct sockaddr_in *)&(ifreq_ip.ifr_addr))->sin_addr)));
   iph->daddr = inet_addr(arg.destIP);
   total_len += sizeof(struct iphdr);
+  // total_len = 14 + 20 = 34;
   get_udp();
 
   iph->tot_len = htons(total_len - sizeof(struct ethhdr));
+  printf("ip total len = %d\n", total_len - sizeof(struct ethhdr));
+
+  // iph->tot_len = htons(arg.packetSize);
   iph->check =
       htons(checksum((unsigned short *)(sendbuff + sizeof(struct ethhdr)),
                      (sizeof(struct iphdr) / 2)));
@@ -226,6 +239,9 @@ void get_ip() {
 
 int main(int argc, char const *argv[]) {
   parseArgs(argc, argv, &arg);
+  // arg.packetSize += sizeof(struct ethhdr);
+  // arg.packetSize += sizeof(struct iphdr);
+  // arg.packetSize += sizeof(struct udphdr);
   sock_raw = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW);
   if (sock_raw == -1)
     printf("error in socket");
@@ -234,8 +250,8 @@ int main(int argc, char const *argv[]) {
     printf("error in set");
   }
 
-  sendbuff = (unsigned char *)malloc(arg.packetSize);
-  memset(sendbuff, 0, 64);
+  sendbuff = (unsigned char *)malloc(arg.packetSize * sizeof(unsigned char));
+  memset(sendbuff, 0, arg.packetSize);
 
   get_eth_index(); // interface number
   get_mac();
